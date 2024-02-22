@@ -34,12 +34,12 @@ class Repository implements CRUD {
 
             $reflection = new ReflectionClass($className);
 
-            $reflection->getProperties();
-            $properties = [];
+            $reflectionProperties = $reflection->getProperties();
+            
+            $properties = array_map(function ($prop) {
+                return [$prop->name, $prop->getType()->getName()];
+            }, $reflectionProperties);
 
-            foreach ($reflection->getProperties() as $prop) {
-                array_push($properties, $prop->name);
-            }
             $this->properties = $properties;
 
             if ($args['tableName']) $this->tableName = $args['tableName'];
@@ -47,128 +47,61 @@ class Repository implements CRUD {
         else throw new Exception("The given class doesn't managed by repository");
     }
 
-    public function showProperties() {
-        foreach ($this->properties as $key) {
-            echo "<div>$key</div>";
-        }
+    public function getPropertiesLength() : int {
+        return count($this->properties) - 1;
+    }
+
+    public function getTypes(int $times) : string {
+        $values = array_map(
+            function ($value) {
+                return $value[1][0];
+            }, 
+            array_filter($this->properties, 
+                function ($val) {
+                    return $val[0] !== 'id';
+                })
+        );
+
+        return str_repeat(implode('', $values), $times);
+    }
+
+    public function getProperties() : string {
+        $properties = array_filter(
+            array_map(function ($value) {
+                return $value[0];
+            }, $this->properties),
+            function ($val) {
+                return $val != 'id';
+            }
+        );
+
+        return implode(', ', $properties);
     }
 
     public function findAll() {
-
+        
     }
 
     public function findById(int $id) {
 
     }
 
-    /* public function save(string $json) {
-
-        $query = "INSERT INTO ";
-
-        if ($this->tableName) $query .= strtolower($this->tableName);
-        else $query .= strtolower($this->className);
-
-        $query .= " (";
-
-        $length = count($this->properties);
-        for ($i = 1; $i <= $length; $i++) {
-            $key = $this->properties[$i - 1];
-
-            if ($key == 'id') continue;
-
-            if ($i == $length) {
-                $query .= "$key";
-                break;
-            }
-            $query .= "$key, ";
-        }
-
-        $query .= ") VALUES (";
-
-        $arr = json_decode($json, true);
-        $length = count($arr);
-        $i = 1;
-        foreach ($arr as $key => $value) {
-            $isString = false;
-            if (gettype($value) == 'string') $isString = true;
-            if ($i == $length) {
-                $query .= $isString ? "'$value'" : "$value";
-                break;
-            }
-            $query .= $isString ? "'$value', " : "$value, ";
-            $i++;
-        }
-
-        $query .= ");";
-
-        Db::query($query);
-    }
-
-    public function saveAll(array $arr) {
-        $query = "INSERT INTO ";
-
-        if ($this->tableName) $query .= strtolower($this->tableName);
-        else $query .= strtolower($this->className);
-
-        $query .= " (";
-
-        $length = count($this->properties);
-        for ($i = 1; $i <= $length; $i++) {
-            $key = $this->properties[$i - 1];
-
-            if ($key == 'id') continue;
-
-            if ($i == $length) {
-                $query .= "$key";
-                break;
-            }
-            $query .= "$key, ";
-        }
-
-        $query .= ") VALUES" . PHP_EOL;
-        
-        for ($i = 1; $i <= count($arr); $i++) {
-            $query .= "(";
-
-            $values = json_decode($arr[$i - 1], true);
-            
-            $length = count($arr);
-            $j = 1;
-            foreach ($values as $key => $value) {
-                $isString = false;
-                if (gettype($value) == 'string') $isString = true;
-                if ($j - 1 == $length) {
-                    $query .= $isString ? "'$value'" : "$value";
-                    break;
-                }
-                $query .= $isString ? "'$value', " : "$value, ";
-                $j++;
-            }
-            
-            if ($i == $length) {
-                $query .= ");";
-                break;
-            }
-            $query .= "),";
-        }
-
-        Db::query($query);
-    } */
-
-    public function save(string $json) {
+    public function save(string $json) : void {
         $values = json_decode($json, true);
 
         $tableName    = strtolower($this->tableName ? $this->tableName : $this->className);
-        $columns      = implode(', ', $this->properties);
-        $placeHolders = rtrim(str_repeat('?,', count($values)), ', ');
+        $columns      = $this->getProperties();
+        $placeHolders = rtrim(str_repeat('?,', $this->getPropertiesLength()), ', ');
 
-        $query = "INSERT INTO $tableName ($columns) VALUES ($placeHolders)";
+        $query = "INSERT INTO $tableName ($columns) VALUES ($placeHolders);";
+
+        echo $query;
 
         $statement = mysqli_prepare($this->db->getConnection(), $query);
         $statement->execute(array_values($values));
     }
 
-    public function saveAll(array $arr) {
+    public function saveAll(array $arr) : void {
         
     }
 
@@ -187,6 +120,10 @@ class Human extends Repository {
     private string $name;
     private string $lastName;
     private string $age;
+
+    public function __construct() {
+        
+    }
 }
 
 class Animal extends Repository {
@@ -203,13 +140,36 @@ $animalRepository = new Repository('Animal');
 
 /* $animalRepository->showProperties(); */
 
-$humanJson = '
+$humanJsonString = '
     {
         "name": "Danilo",
         "lastName": "Marques",
         "age": 17
     }
 ';
+
+$humanJsonArray = [
+    '{
+        "name": "Danilo",
+        "lastName": "Marques",
+        "age": 17
+    }',
+    '{
+        "name": "Renato",
+        "lastName": "pilula",
+        "age": 91
+    }',
+    '{
+        "name": "Paulo",
+        "lastName": "Henrique",
+        "age": 56
+    }',
+    '{
+        "name": "Bisnagua",
+        "lastName": "Margarina",
+        "age": 24
+    }'
+];
 
 $animalJsonString = '
     {
@@ -241,5 +201,7 @@ $animalJsonArray = [
     }'
 ];
 
+/* $animalRepository->save($animalJsonString);
+$humanRepository->save($humanJsonString); */
+$humanRepository->saveAll($humanJsonArray);
 $animalRepository->saveAll($animalJsonArray);
-/* $humanRepository->saveAll($animalJsonArray); */

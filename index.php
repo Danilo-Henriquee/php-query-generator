@@ -102,7 +102,27 @@ class Repository implements CRUD {
     }
 
     public function saveAll(array $arr) : void {
-        
+        $tableName    = strtolower($this->tableName ? $this->tableName : $this->className);
+        $columns      = $this->getProperties();
+        $placeHolder  = rtrim(str_repeat('?,', $this->getPropertiesLength()), ', ');
+        $placeHolders = rtrim(str_repeat("($placeHolder),", count($arr)), ', ');
+
+        $query = "INSERT INTO $tableName ($columns) VALUES $placeHolders;";
+        echo $query;
+
+        $statement = mysqli_prepare($this->db->getConnection(), $query);
+    
+        $types = $this->getTypes(count($arr));
+
+        $array = [];
+        foreach ($arr as $json) {
+            $value = json_decode($json, true);
+            $values = array_values($value);
+            array_push($array, ...$values);
+        }
+
+        $statement->bind_param($types, ...$array);
+        $statement->execute();
     }
 
     public function deleteAll(int $id) {

@@ -7,21 +7,43 @@ class Db {
     const password = "";
     const database = "teste";
 
-    private $connection;
+    private static $connection;
 
-    public function __construct() {
-        $this->connection = mysqli_connect(Db::host, Db::username, Db::password, Db::database);
-    }
+    public static function getConnection() {
+        if (!isset(self::$connection)) {
+            self::$connection = new mysqli(Db::host, Db::username, Db::password, Db::database);
 
-    public function query($sql) {
-        if (!$this->connection) {
-            throw new Exception(mysqli_connect_error());
+            if (self::$connection->connect_error) {
+                die("Database connection error" . self::$connection->connect_error);
+            }
         }
-
-        mysqli_query($this->connection, $sql);
+        return self::$connection;
     }
 
-    public function getConnection() {
-        return $this->connection;
+    /**
+     * @param string $referencedClass name of the parent class.
+     * @param string $mappedBy (optional) where the result of a determinated register will be inputed.
+     * @param string $referencedForeignColumn name of the foreign key in the child table.
+     * @param bool $jsonIgnore if false will return all register they will found with the foreign key when the query is maded.
+     * 
+     */
+    public static function oneToMany(string $referencedClass, string $mappedBy, string $referencedForeignColumn, bool $jsonIgnore) : array {
+        return [
+            'OneToMany',
+            $referencedClass,
+            $mappedBy,
+            $referencedForeignColumn,
+            $jsonIgnore
+        ];
+    }
+
+    public static function ManyToOne(string $referencedClass, string $mappedBy, string $referencedForeignColumn, bool $jsonIgnore) : array {
+        return [
+            'ManyToOne',
+            $referencedClass,
+            $mappedBy,
+            $referencedForeignColumn,
+            $jsonIgnore
+        ];
     }
 }

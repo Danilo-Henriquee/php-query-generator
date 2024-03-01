@@ -1,118 +1,115 @@
 <?php
-
-use function PHPSTORM_META\type;
 include('./db.php');
-
+include('./entitys.php');
+include('./entityServiceLayer.php');
 
 interface CRUD {
-    public function save(string $obj);
-    public function saveAll(array $obj);
+    public function save(string $obj) : void;
+    public function saveAll(array $obj) : void;
     public function findAll();
     public function findById(int $id);
     public function deleteAll(int $id);
     public function deletebyId(int $id);
 }
 
-class Repository implements CRUD {
+interface Entity {
+    public static function relationships() : array;
+}
+
+class Repository extends EntityServiceLayer implements CRUD {
 
     private string $className;
-    private ?string $tableName;
-    private array $properties;
-    private Db $db;
+    private string $tableName;
 
-    const SELECT = "SELECT";
-    const INSERT = "INSERT";
-    const UPDATE = "UPDATE";
-    const DELETE = "DELETE";
+    public function __construct(string $className) {
+        try {
+            if (class_exists($className)) {
+                if (in_array('Entity', class_implements($className))) {
+                    $reflection = new ReflectionClass($className);
 
-    public function __construct(string $className, array $args = []) {
-        if (class_exists($className) && is_subclass_of($className, 'Repository')) {
-            $this->db = new Db();
-
-            $this->className = $className;
-            $this->tableName = null;
-
-            $reflection = new ReflectionClass($className);
-
-            $reflectionProperties = $reflection->getProperties();
-            
-            $properties = array_map(function ($prop) {
-                return [$prop->name, $prop->getType()->getName()];
-            }, $reflectionProperties);
-
-            $this->properties = $properties;
-
-            if ($args['tableName']) $this->tableName = $args['tableName'];
-        }
-        else throw new Exception("The given class doesn't managed by repository");
-    }
-
-    public function getPropertiesLength() : int {
-        return count($this->properties) - 1;
-    }
-
-    public function getTypes(int $times) : string {
-        $values = array_map(
-            function ($value) {
-                return $value[1][0];
-            }, 
-            array_filter($this->properties, 
-                function ($val) {
-                    return $val[0] !== 'id';
-                })
-        );
-
-        return str_repeat(implode('', $values), $times);
-    }
-
-    public function getProperties() : string {
-        $properties = array_filter(
-            array_map(function ($value) {
-                return $value[0];
-            }, $this->properties),
-            function ($val) {
-                return $val != 'id';
+                    $this->className = $className;
+                    $this->tableName = $reflection->getConstant('table');
+                }
+                else throw new Exception("The given class does not implement Entity interface.");
             }
-        );
-
-        return implode(', ', $properties);
+            else throw new Exception("The given class does not exists.");
+        }
+        catch (Exception $e) {
+            throw new Exception($e);
+        }
+        catch (Error) {
+            throw new Exception("table constant in $className class has not defined.");
+        }
     }
 
-    public function findAll() {
-        
+    public function findAll() : array {
+        $columns = Parent::getColumns($this->className, true);
+        $tableName = $this->tableName;
+
+        $query = "SELECT $columns FROM $tableName";
+
+        $queryResult = mysqli_query(Parent::getConnection(), $query);
+
+        $results = [];
+        while ($row = $queryResult->fetch_assoc()) {
+            if (Parent::hasRelationship($this->className)) {
+                $childResult = Parent::getRelationships($this->className, $row['id']);
+                $row[$childResult[0]] = $childResult[1];
+
+                array_push($results, $row);
+            }
+        }
+        echo(json_encode($results));
+
+        return Parent::formatNumbers($results);
     }
 
-    public function findById(int $id) {
+    public function findById(int $id) : array {
+        $columns = Parent::getColumns($this->className, true);
+        $tableName = $this->tableName;
 
+        $query = "SELECT $columns FROM $tableName WHERE id = ?";
+
+        $statement = mysqli_prepare(Parent::getConnection(), $query);
+
+        $statement->bind_param('i', $id);
+        $statement->execute();
+        $result = $statement->get_result()->fetch_assoc();
+
+        if (Parent::hasRelationship($this->className)) {
+            $childResult = Parent::getRelationships($this->className, $result['id']);
+            $result[$childResult[0]] = $childResult[1];
+        }
+
+        return $result;
     }
 
     public function save(string $json) : void {
-        $values = json_decode($json, true);
+        $values       = json_decode($json, true);
 
-        $tableName    = strtolower($this->tableName ? $this->tableName : $this->className);
-        $columns      = $this->getProperties();
-        $placeHolders = rtrim(str_repeat('?,', $this->getPropertiesLength()), ', ');
+        $tableName    = $this->tableName;
+        $columns      = Parent::getColumns($this->className, false);
+        $placeHolders = rtrim(str_repeat('?,', Parent::getColumnsLength($this->className)), ', ');
 
         $query = "INSERT INTO $tableName ($columns) VALUES ($placeHolders);";
 
-        echo $query;
-
-        $statement = mysqli_prepare($this->db->getConnection(), $query);
+        $statement = mysqli_prepare(Parent::getConnection(), $query);
         $statement->execute(array_values($values));
+
+        $result = $statement->get_result()->fetch_assoc();
     }
 
     public function saveAll(array $arr) : void {
-        $tableName    = strtolower($this->tableName ? $this->tableName : $this->className);
-        $columns      = $this->getProperties();
-        $placeHolder  = rtrim(str_repeat('?,', $this->getPropertiesLength()), ', ');
+        $tableName    = $this->tableName;
+        $columns      = Parent::getColumns($this->className, false);
+        $placeHolder  = rtrim(str_repeat('?,', Parent::getColumnsLength($this->className)), ', ');
         $placeHolders = rtrim(str_repeat("($placeHolder),", count($arr)), ', ');
 
         $query = "INSERT INTO $tableName ($columns) VALUES $placeHolders;";
-        echo $query;
 
-        $statement = mysqli_prepare($this->db->getConnection(), $query);
+        $statement = mysqli_prepare(Parent::getConnection(), $query);
     
-        $types = $this->getTypes(count($arr));
+        $types = Parent::getTypes($this->className, count($arr));
 
         $array = [];
         foreach ($arr as $json) {
@@ -125,34 +122,14 @@ class Repository implements CRUD {
         $statement->execute();
     }
 
-    public function deleteAll(int $id) {
+    public function deleteAll(int $id = -1) {
+        if ($id == -1) {
 
+        }
     }
 
     public function deletebyId(int $id) {
-
     }
-}
-
-class Human extends Repository {
-
-    private string $id;
-    private string $name;
-    private string $lastName;
-    private string $age;
-
-    public function __construct() {
-        
-    }
-}
-
-class Animal extends Repository {
-
-    private string $id;
-    private string $name;
-    private string $race;
-    private string $color;
-    private string $owner;
 }
 
 $humanRepository = new Repository('Human');
@@ -222,6 +199,9 @@ $animalJsonArray = [
 ];
 
 /* $animalRepository->save($animalJsonString);
-$humanRepository->save($humanJsonString); */
+$humanRepository->save($humanJsonString);
 $humanRepository->saveAll($humanJsonArray);
-$animalRepository->saveAll($animalJsonArray);
+$animalRepository->saveAll($animalJsonArray); */
+
+$humanRepository->findAll();
+
